@@ -47,7 +47,7 @@ public class MusicView extends View implements NowPlaying.Listener {
     private int settingsFocus;        // settings: column on the theme row
     private int lookFocus;            // settings: column on the equaliser-look row
     private int settingsRow;          // settings: 0 theme row, 1 look row
-    private static final int CLASSIC = 0, BOXY = 1, MODERN = 2;
+    private static final int CLASSIC = 0, KINDLE = 1, MODERN = 2;
     private final android.content.SharedPreferences prefs;
     private int look;
     private float S = 1f;
@@ -490,7 +490,7 @@ public class MusicView extends View implements NowPlaying.Listener {
         String sub = np.artist + (np.album.isEmpty() ? "" : "   ·   " + np.album);
         txt(c, fit(sub, 34, outfit300, 1300), 960, 262, 34, outfit300, theme.sub(), Paint.Align.CENTER);
         cover(c, 110, 90, 110);
-        if (look == BOXY) drawBoxy(c, 110, 360, 1810, 930);
+        if (look == KINDLE) drawKindle(c, 110, 360, 1810, 930);
         else if (look == MODERN) drawModern(c, 110, 360, 1810, 930);
         else drawLeds(c, 110, 360, 1810, 930);
         progress(c, 110, 1810, 985);
@@ -524,33 +524,24 @@ public class MusicView extends View implements NowPlaying.Listener {
         }
     }
 
-    /** 2000s hi-fi look: a recessed black panel, big square segments, green to red, sharp corners. */
-    private void drawBoxy(Canvas c, float x0, float y0, float x1, float y1) {
-        fill(c, x0, y0, x1, y1, 6, 0xFF0A0C0E);
-        stroke(c, x0, y0, x1, y1, 6, 0xFF4A5058, 6);
-        stroke(c, x0 + 8, y0 + 8, x1 - 8, y1 - 8, 3, 0xFF1C2024, 3);
-        float ix0 = x0 + 30, ix1 = x1 - 30, iy0 = y0 + 30, iy1 = y1 - 30;
-        int cols = 22, rows = 12;
-        float cw = (ix1 - ix0) / cols, ch = (iy1 - iy0) / rows, gap = 5;
-        int[] rowCol = new int[rows];
-        int[] stops = {Color.rgb(20, 225, 70), Color.rgb(120, 235, 40), Color.rgb(255, 225, 20), Color.rgb(255, 140, 20), Color.rgb(255, 45, 35)};
-        for (int r = 0; r < rows; r++) rowCol[r] = ramp(stops, r / (float) (rows - 1));
+    /** Kindle-styled digital equaliser: fine segments in one cream ink colour straight on the background. */
+    private void drawKindle(Canvas c, float x0, float y0, float x1, float y1) {
+        final int ink = theme.light() ? 0xFF1B1B1B : 0xFFF1EADA;   // Kindle cream on dark, dark ink on light
+        float iy1 = y1 - 40;
+        int cols = Audio.BANDS, rows = 22;
+        float cw = (x1 - x0) / cols, ch = (iy1 - y0) / rows;
         for (int i = 0; i < cols; i++) {
-            float lv = (audio.level[2 * i] + audio.level[2 * i + 1]) / 2f;
-            float pkv = Math.max(audio.peak[2 * i], audio.peak[2 * i + 1]);
-            int n = Math.round(lv * rows);
+            int n = Math.round(audio.level[i] * rows);
             if (np.playing) n = Math.max(1, n);
-            int pk = Math.min(rows - 1, Math.round(pkv * rows));
-            float bx = ix0 + i * cw;
+            int pk = Math.min(rows - 1, Math.round(audio.peak[i] * rows));
+            float bx = x0 + i * cw + cw * .12f;
             for (int r = 0; r < rows; r++) {
-                float by = iy1 - (r + 1) * ch;
-                int color;
-                if (r < n) color = rowCol[r];
-                else if (r == pk && np.playing && pk > 0) color = 0xFFE6E6E6;
-                else color = mix(0xFF0A0C0E, rowCol[r], .12f);
-                fill(c, bx + gap / 2, by + gap / 2, bx + cw - gap / 2, by + ch - gap / 2, 0, color);
+                float by = iy1 - (r + 1) * ch + ch * .2f;
+                int color = r < n ? withAlpha(ink, 235) : (r == pk && np.playing && pk > 0) ? ink : withAlpha(ink, 26);
+                fill(c, bx, by, bx + cw * .76f, by + ch * .6f, 2, color);
             }
         }
+        fill(c, x0, iy1 + 14, x1, iy1 + 17, 1, withAlpha(ink, 200));
     }
 
     /** Modern look: slim rounded bars with a gradient, a soft glow, floating peak dots and a mirror reflection. */
@@ -712,8 +703,8 @@ public class MusicView extends View implements NowPlaying.Listener {
         }
         p.setLetterSpacing(.28f);
         txt(c, "EQUALISER LOOK", x0 + 4, 525, 22, outfit500, theme.sub(), Paint.Align.LEFT);
-        String[] lnames = {"Classic", "2000s", "Modern"};
-        String[] lsubs = {"Round LED blocks", "Boxy hi-fi segments", "Smooth glowing bars"};
+        String[] lnames = {"Classic", "Kindle", "Modern"};
+        String[] lsubs = {"Round LED blocks", "Cream ink digital bars", "Smooth glowing bars"};
         for (int k = 0; k < 3; k++) {
             float bx = x0 + k * (cw + gx), y0 = 570;
             glass(c, bx, y0, bx + cw, y0 + ch, 36, settingsRow == 1 && lookFocus == k);
@@ -754,17 +745,16 @@ public class MusicView extends View implements NowPlaying.Listener {
                 }
             }
         } else if (k == 1) {
-            fill(c, l + 8, t + 8, l + w - 8, t + h - 8, 3, 0xFF0A0C0E);
-            stroke(c, l + 8, t + 8, l + w - 8, t + h - 8, 3, 0xFF4A5058, 3);
-            int[] stops = {Color.rgb(20, 225, 70), Color.rgb(255, 225, 20), Color.rgb(255, 45, 35)};
-            int cols = 11;
+            int cols = 20;
             float cs = (w - 70) / cols;
             for (int i = 0; i < cols; i++) {
-                for (int r = 0; r < 6; r++) {
-                    float bx = l + 35 + i * cs, by = t + h - 24 - (r + 1) * 19;
-                    fill(c, bx, by, bx + cs - 5, by + 15, 0, r < pat[i % pat.length] ? ramp(stops, r / 5f) : 0xFF182018);
+                int n = 3 + (pat[i % pat.length] - 3) * 2 + (i % 3);
+                for (int r = 0; r < 11; r++) {
+                    float bx = l + 35 + i * cs, by = t + h - 26 - (r + 1) * 10;
+                    fill(c, bx, by, bx + cs * .76f, by + 6, 1, r < n ? 0xEBF1EADA : 0x1AF1EADA);
                 }
             }
+            fill(c, l + 35, t + h - 18, l + w - 35, t + h - 15, 1, 0xC8F1EADA);
         } else {
             int[] g = {Color.rgb(40, 215, 255), Color.rgb(95, 150, 255), Color.rgb(170, 100, 255), Color.rgb(235, 110, 220)};
             p.setStyle(Paint.Style.FILL);

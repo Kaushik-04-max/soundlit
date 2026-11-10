@@ -5,7 +5,7 @@ It reads what Spotify is playing and shows it in three ways:
 
 - **Equaliser** – a bottom-up LED block grid that reacts to the real audio, with the song title, artist, album art and progress.
 - **Lyrics** – time-synced lyrics typed out word by word, Kindle style, in a book serif font.
-- **Settings** – theme: permanent Black, White, or *Song colours* (follows the album art).
+- **Settings** – theme (Black, White, or *Song colours* that follow the album art) and equaliser look (Classic round LED blocks, 2000s boxy hi-fi, or Modern glowing bars).
 
 The menu has Previous / Play-Pause / Next controls. No on-screen back button: the remote's Back key works everywhere.
 

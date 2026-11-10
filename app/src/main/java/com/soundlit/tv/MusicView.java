@@ -44,7 +44,12 @@ public class MusicView extends View implements NowPlaying.Listener {
 
     private int screen = MENU;
     private int focus = 1;            // menu: 0 settings, 1 equaliser, 2 lyrics, 3 prev, 4 play/pause, 5 next
-    private int settingsFocus;
+    private int settingsFocus;        // settings: column on the theme row
+    private int lookFocus;            // settings: column on the equaliser-look row
+    private int settingsRow;          // settings: 0 theme row, 1 look row
+    private static final int CLASSIC = 0, BOXY = 1, MODERN = 2;
+    private final android.content.SharedPreferences prefs;
+    private int look;
     private float S = 1f;
     private boolean running;
 
@@ -70,6 +75,8 @@ public class MusicView extends View implements NowPlaying.Listener {
         super(ctx);
         setFocusable(true);
         theme = new Theme(ctx);
+        prefs = ctx.getSharedPreferences("look", Context.MODE_PRIVATE);
+        look = Math.max(0, Math.min(2, prefs.getInt("look", CLASSIC)));
         np = new NowPlaying(ctx, this);
         outfit300 = font(ctx, "Outfit.ttf", 300);
         outfit500 = font(ctx, "Outfit.ttf", 500);
@@ -161,9 +168,18 @@ public class MusicView extends View implements NowPlaying.Listener {
                 return moveMenu(code);
             case SETTINGS:
                 if (back) { screen = MENU; invalidate(); return true; }
-                if (code == KeyEvent.KEYCODE_DPAD_LEFT && settingsFocus > 0) settingsFocus--;
-                else if (code == KeyEvent.KEYCODE_DPAD_RIGHT && settingsFocus < 2) settingsFocus++;
-                else if (ok) { theme.setMode(settingsFocus); bgKey = 0; }
+                if (code == KeyEvent.KEYCODE_DPAD_UP) settingsRow = 0;
+                else if (code == KeyEvent.KEYCODE_DPAD_DOWN) settingsRow = 1;
+                else if (code == KeyEvent.KEYCODE_DPAD_LEFT) {
+                    if (settingsRow == 0 && settingsFocus > 0) settingsFocus--;
+                    else if (settingsRow == 1 && lookFocus > 0) lookFocus--;
+                } else if (code == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                    if (settingsRow == 0 && settingsFocus < 2) settingsFocus++;
+                    else if (settingsRow == 1 && lookFocus < 2) lookFocus++;
+                } else if (ok) {
+                    if (settingsRow == 0) { theme.setMode(settingsFocus); bgKey = 0; }
+                    else { look = lookFocus; prefs.edit().putInt("look", look).apply(); }
+                }
                 invalidate();
                 return true;
             default:   // equaliser, lyrics: no controls on screen, Back returns to the menu
@@ -197,7 +213,7 @@ public class MusicView extends View implements NowPlaying.Listener {
 
     private void activateMenu() {
         switch (focus) {
-            case 0: screen = SETTINGS; settingsFocus = theme.mode; break;
+            case 0: screen = SETTINGS; settingsRow = 0; settingsFocus = theme.mode; lookFocus = look; break;
             case 1: screen = EQ; break;
             case 2: screen = LYRICS; break;
             case 3: np.prev(); break;
@@ -474,7 +490,9 @@ public class MusicView extends View implements NowPlaying.Listener {
         String sub = np.artist + (np.album.isEmpty() ? "" : "   ·   " + np.album);
         txt(c, fit(sub, 34, outfit300, 1300), 960, 262, 34, outfit300, theme.sub(), Paint.Align.CENTER);
         cover(c, 110, 90, 110);
-        drawLeds(c, 110, 360, 1810, 930);
+        if (look == BOXY) drawBoxy(c, 110, 360, 1810, 930);
+        else if (look == MODERN) drawModern(c, 110, 360, 1810, 930);
+        else drawLeds(c, 110, 360, 1810, 930);
         progress(c, 110, 1810, 985);
         txt(c, clock(np.position()), 110, 1010, 22, outfit300, theme.sub(), Paint.Align.LEFT);
         txt(c, clock(np.duration), 1810, 1010, 22, outfit300, theme.sub(), Paint.Align.RIGHT);
@@ -504,6 +522,69 @@ public class MusicView extends View implements NowPlaying.Listener {
                 fill(c, bx - 5, by - 5, bx + cw - gap + 5, by + ch - gap + 5, rad + 4, withAlpha(rowCol[r], 38));
             }
         }
+    }
+
+    /** 2000s hi-fi look: a recessed black panel, big square segments, green to red, sharp corners. */
+    private void drawBoxy(Canvas c, float x0, float y0, float x1, float y1) {
+        fill(c, x0, y0, x1, y1, 6, 0xFF0A0C0E);
+        stroke(c, x0, y0, x1, y1, 6, 0xFF4A5058, 6);
+        stroke(c, x0 + 8, y0 + 8, x1 - 8, y1 - 8, 3, 0xFF1C2024, 3);
+        float ix0 = x0 + 30, ix1 = x1 - 30, iy0 = y0 + 30, iy1 = y1 - 30;
+        int cols = 22, rows = 12;
+        float cw = (ix1 - ix0) / cols, ch = (iy1 - iy0) / rows, gap = 5;
+        int[] rowCol = new int[rows];
+        int[] stops = {Color.rgb(20, 225, 70), Color.rgb(120, 235, 40), Color.rgb(255, 225, 20), Color.rgb(255, 140, 20), Color.rgb(255, 45, 35)};
+        for (int r = 0; r < rows; r++) rowCol[r] = ramp(stops, r / (float) (rows - 1));
+        for (int i = 0; i < cols; i++) {
+            float lv = (audio.level[2 * i] + audio.level[2 * i + 1]) / 2f;
+            float pkv = Math.max(audio.peak[2 * i], audio.peak[2 * i + 1]);
+            int n = Math.round(lv * rows);
+            if (np.playing) n = Math.max(1, n);
+            int pk = Math.min(rows - 1, Math.round(pkv * rows));
+            float bx = ix0 + i * cw;
+            for (int r = 0; r < rows; r++) {
+                float by = iy1 - (r + 1) * ch;
+                int color;
+                if (r < n) color = rowCol[r];
+                else if (r == pk && np.playing && pk > 0) color = 0xFFE6E6E6;
+                else color = mix(0xFF0A0C0E, rowCol[r], .12f);
+                fill(c, bx + gap / 2, by + gap / 2, bx + cw - gap / 2, by + ch - gap / 2, 0, color);
+            }
+        }
+    }
+
+    /** Modern look: slim rounded bars with a gradient, a soft glow, floating peak dots and a mirror reflection. */
+    private void drawModern(Canvas c, float x0, float y0, float x1, float y1) {
+        int cols = Audio.BANDS;
+        float base = y1 - 70, top = y0 + 10;
+        float cw = (x1 - x0) / cols, bw = cw * .5f;
+        int[] g = ledStops();
+        Shader shader = new LinearGradient(0, u(base), 0, u(top), g, null, Shader.TileMode.CLAMP);
+        p.setStyle(Paint.Style.FILL);
+        for (int i = 0; i < cols; i++) {
+            float h = Math.max(bw, audio.level[i] * (base - top));
+            float cx = x0 + (i + .5f) * cw;
+            float l = cx - bw / 2, r = cx + bw / 2;
+            p.setShader(shader);
+            p.setAlpha(46);
+            rect.set(u(l - 7), u(base - h - 7), u(r + 7), u(base + 7));
+            c.drawRoundRect(rect, u(bw), u(bw), p);
+            p.setAlpha(255);
+            rect.set(u(l), u(base - h), u(r), u(base));
+            c.drawRoundRect(rect, u(bw / 2), u(bw / 2), p);
+            p.setAlpha(60);   // reflection
+            float rh = Math.min(64f, h * .3f);
+            rect.set(u(l), u(base + 10), u(r), u(base + 10 + rh));
+            c.drawRoundRect(rect, u(bw / 2), u(bw / 2), p);
+            p.setAlpha(255);
+            if (np.playing && audio.peak[i] > audio.level[i] + .03f) {
+                p.setShader(null);
+                p.setColor(withAlpha(theme.text(), 200));
+                c.drawCircle(u(cx), u(base - audio.peak[i] * (base - top) - bw), u(bw * .38f), p);
+            }
+        }
+        p.setShader(null);
+        fill(c, x0, base + 2, x1, base + 4, 2, ink(40));
     }
 
     private int lineIndex(long pos) {
@@ -615,33 +696,92 @@ public class MusicView extends View implements NowPlaying.Listener {
 
     private void drawSettings(Canvas c) {
         drawBg(c);
-        txt(c, "Settings", 140, 100, 84, outfit600, theme.text(), Paint.Align.LEFT);
-        spaced(c, "THEME", 218, 226, 24, theme.sub());
+        txt(c, "Settings", 140, 44, 64, outfit600, theme.text(), Paint.Align.LEFT);
+        float cw = 520, ch = 290, gx = 56, x0 = (1920 - (3 * cw + 2 * gx)) / 2f;
+        p.setLetterSpacing(.28f);
+        txt(c, "THEME", x0 + 4, 150, 22, outfit500, theme.sub(), Paint.Align.LEFT);
         String[] names = {"Black", "White", "Song colours"};
         String[] subs = {"Always pure black", "Always light", "Follows the album art"};
-        float cw = 520, ch = 470, gx = 56, x0 = (1920 - (3 * cw + 2 * gx)) / 2f, y0 = 300;
-        int saved = theme.mode;
         for (int k = 0; k < 3; k++) {
-            float bx = x0 + k * (cw + gx);
-            glass(c, bx, y0, bx + cw, y0 + ch, 40, settingsFocus == k);
-            drawMini(c, k, bx + 24, y0 + 24, cw - 48, 250);
-            txt(c, names[k], bx + 36, y0 + 298, 40, outfit600, theme.text(), Paint.Align.LEFT);
-            txt(c, subs[k], bx + 36, y0 + 360, 24, outfit300, theme.sub(), Paint.Align.LEFT);
-            if (saved == k) {
-                p.setShader(null);
-                p.setStyle(Paint.Style.FILL);
-                p.setColor(ACCENT);
-                c.drawCircle(u(bx + cw - 63), u(y0 + 337), u(27), p);
-                p.setStyle(Paint.Style.STROKE);
-                p.setStrokeWidth(u(6));
-                p.setColor(0xFF0A1428);
-                path.reset();
-                path.moveTo(u(bx + cw - 77), u(y0 + 338));
-                path.lineTo(u(bx + cw - 67), u(y0 + 348));
-                path.lineTo(u(bx + cw - 49), u(y0 + 326));
-                c.drawPath(path, p);
-                p.setStyle(Paint.Style.FILL);
+            float bx = x0 + k * (cw + gx), y0 = 195;
+            glass(c, bx, y0, bx + cw, y0 + ch, 36, settingsRow == 0 && settingsFocus == k);
+            drawMini(c, k, bx + 20, y0 + 20, cw - 40, 150);
+            txt(c, names[k], bx + 32, y0 + 188, 36, outfit600, theme.text(), Paint.Align.LEFT);
+            txt(c, subs[k], bx + 32, y0 + 238, 22, outfit300, theme.sub(), Paint.Align.LEFT);
+            if (theme.mode == k) tick(c, bx + cw - 56, y0 + ch - 52);
+        }
+        p.setLetterSpacing(.28f);
+        txt(c, "EQUALISER LOOK", x0 + 4, 525, 22, outfit500, theme.sub(), Paint.Align.LEFT);
+        String[] lnames = {"Classic", "2000s", "Modern"};
+        String[] lsubs = {"Round LED blocks", "Boxy hi-fi segments", "Smooth glowing bars"};
+        for (int k = 0; k < 3; k++) {
+            float bx = x0 + k * (cw + gx), y0 = 570;
+            glass(c, bx, y0, bx + cw, y0 + ch, 36, settingsRow == 1 && lookFocus == k);
+            drawLookMini(c, k, bx + 20, y0 + 20, cw - 40, 150);
+            txt(c, lnames[k], bx + 32, y0 + 188, 36, outfit600, theme.text(), Paint.Align.LEFT);
+            txt(c, lsubs[k], bx + 32, y0 + 238, 22, outfit300, theme.sub(), Paint.Align.LEFT);
+            if (look == k) tick(c, bx + cw - 56, y0 + ch - 52);
+        }
+    }
+
+    private void tick(Canvas c, float cx, float cy) {
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(ACCENT);
+        c.drawCircle(u(cx), u(cy), u(24), p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(u(5));
+        p.setColor(0xFF0A1428);
+        path.reset();
+        path.moveTo(u(cx - 12), u(cy + 1));
+        path.lineTo(u(cx - 4), u(cy + 9));
+        path.lineTo(u(cx + 12), u(cy - 10));
+        c.drawPath(path, p);
+        p.setStyle(Paint.Style.FILL);
+    }
+
+    private void drawLookMini(Canvas c, int k, float l, float t, float w, float h) {
+        fill(c, l, t, l + w, t + h, 22, 0xFF080A12);
+        int[] pat = {3, 5, 4, 6, 5, 3, 4, 6, 5, 4, 3, 5};
+        if (k == 0) {
+            int[] stops = {Color.rgb(40, 215, 255), Color.rgb(95, 150, 255), Color.rgb(170, 100, 255), Color.rgb(235, 110, 220)};
+            int cols = 16;
+            float cs = (w - 60) / cols;
+            for (int i = 0; i < cols; i++) {
+                for (int r = 0; r < 6; r++) {
+                    float bx = l + 30 + i * cs, by = t + h - 20 - (r + 1) * 20;
+                    fill(c, bx, by, bx + cs - 5, by + 15, 4, r < pat[i % pat.length] ? ramp(stops, r / 5f) : 0x14FFFFFF);
+                }
             }
+        } else if (k == 1) {
+            fill(c, l + 8, t + 8, l + w - 8, t + h - 8, 3, 0xFF0A0C0E);
+            stroke(c, l + 8, t + 8, l + w - 8, t + h - 8, 3, 0xFF4A5058, 3);
+            int[] stops = {Color.rgb(20, 225, 70), Color.rgb(255, 225, 20), Color.rgb(255, 45, 35)};
+            int cols = 11;
+            float cs = (w - 70) / cols;
+            for (int i = 0; i < cols; i++) {
+                for (int r = 0; r < 6; r++) {
+                    float bx = l + 35 + i * cs, by = t + h - 24 - (r + 1) * 19;
+                    fill(c, bx, by, bx + cs - 5, by + 15, 0, r < pat[i % pat.length] ? ramp(stops, r / 5f) : 0xFF182018);
+                }
+            }
+        } else {
+            int[] g = {Color.rgb(40, 215, 255), Color.rgb(95, 150, 255), Color.rgb(170, 100, 255), Color.rgb(235, 110, 220)};
+            p.setStyle(Paint.Style.FILL);
+            p.setShader(new LinearGradient(0, u(t + h - 34), 0, u(t + 18), g, null, Shader.TileMode.CLAMP));
+            int cols = 18;
+            float cs = (w - 60) / cols;
+            for (int i = 0; i < cols; i++) {
+                float bh = (.25f + .7f * Math.abs((float) Math.sin(i * .7 + 1))) * 98;
+                float bx = l + 30 + i * cs;
+                rect.set(u(bx), u(t + h - 34 - bh), u(bx + cs * .5f), u(t + h - 34));
+                c.drawRoundRect(rect, u(cs * .25f), u(cs * .25f), p);
+                p.setAlpha(60);
+                rect.set(u(bx), u(t + h - 28), u(bx + cs * .5f), u(t + h - 28 + bh * .18f));
+                c.drawRoundRect(rect, u(cs * .25f), u(cs * .25f), p);
+                p.setAlpha(255);
+            }
+            p.setShader(null);
         }
     }
 
@@ -658,7 +798,7 @@ public class MusicView extends View implements NowPlaying.Listener {
         int n = 14;
         float bw = (w - 60) / (n * 1.4f);
         for (int i = 0; i < n; i++) {
-            float hh = (.25f + .7f * Math.abs((float) Math.sin(i * .8 + 1))) * 120;
+            float hh = (.25f + .7f * Math.abs((float) Math.sin(i * .8 + 1))) * (h - 50) * .5f;
             float bx = l + 30 + i * bw * 1.4f;
             fill(c, bx, t + h - 24 - hh, bx + bw, t + h - 24, bw / 2, mix(stops[0], stops[1], i / (float) (n - 1)));
         }
